@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { addProduct,deletedProduct } = require('../controllers/adminControl');
+const { addProduct, deletedProduct, editProduct } = require('../controllers/adminControl');
 const upload = require('../config/multerConfig');
 
 router.get('/admin', function (req, res, next) {
@@ -8,6 +8,7 @@ router.get('/admin', function (req, res, next) {
 });
 
 router.post('/product/add', upload.array('images', 5), addProduct); // دعم حتى 5 صور في الطلب الواحد
-router.delete('/product/delete',deletedProduct)
+router.delete('/product/delete', deletedProduct)
+router.put('/product/edit', upload.array('images', 5), editProduct)
 
 module.exports = router;

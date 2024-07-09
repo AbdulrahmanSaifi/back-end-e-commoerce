@@ -136,3 +136,79 @@ exports.deletedProduct = async (req, res) => {
         res.status(500).json({ message: 'An error occurred while handling the product deletion', error: error.message });
     }
 };
+
+exports.editProduct = async (req, res) => {
+    try {
+        const { name, price, description, _id } = req.body;
+        const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
+        console.log(name)
+
+
+
+        const filter = { _id };
+        const updateDoc = { $set: {} };
+
+        if (name !== undefined) updateDoc.$set.name = name;
+        if (price !== undefined) updateDoc.$set.price = price;
+        if (description !== undefined) updateDoc.$set.description = description;
+        const product = await Product.findById(_id);
+        if (!product) {
+            return res.status(404).json({ message: 'No matching product found.' });
+        }
+
+        let deletionErrors = [];
+        let images = [];
+        if (files && files.length > 0) {
+            await Promise.all(product.images.map(async (file) => {
+                try {
+                    await deleteImage(file.name);
+                } catch (error) {
+                    deletionErrors.push({ fileName: file.name, error: error.message });
+                }
+            }));
+
+            images = await Promise.all(files.map(async (file) => {
+                const blob = bucket.file(`images/${file.originalname}`);
+                const blobStream = blob.createWriteStream({ resumable: false });
+
+                return new Promise((resolve, reject) => {
+                    blobStream.on('error', (err) => {
+                        reject(err);
+                    });
+
+                    blobStream.on('finish', async () => {
+                        try {
+                            const signedUrls = await blob.getSignedUrl({ action: 'read', expires: '03-17-2025' });
+                            resolve({ name: blob.name, url: signedUrls[0] });
+                        } catch (error) {
+                            reject(error);
+                        }
+                    });
+
+                    blobStream.end(file.buffer);
+                });
+            }));
+
+            updateDoc.$set.images = images;
+        }
+
+        if (deletionErrors.length > 0) {
+            return res.status(500).json({
+                message: 'Failed to delete one or more images',
+                errors: deletionErrors,
+                status: "failed"
+            });
+        }
+
+        const result = await Product.updateOne(filter, updateDoc);
+
+        if (result.matchedCount === 0) {
+            res.status(404).json({ message: "No matching product found." });
+        } else {
+            res.status(200).json({ message: `${result.modifiedCount} product(s) updated.` });
+        }
+    } catch (error) {
+        console.error('Error updating product:', error);
+        res.status(500).json({ message: 'Error updating product.' });
+    }
+};
