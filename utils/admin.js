@@ -1,60 +1,47 @@
-const jwt = require('jsonwebtoken')
-const bcrypt = require('bcrypt')
-const Admin = require('../models/admin')
-const secretKeyAdmin = process.env.SECRETKEYADMIN
-const salt = 10
+const jwt = require('jsonwebtoken');
+const Admin = require('../models/admin');
+const secretKeyAdmin = process.env.SECRETKEYADMIN;
 
 const generateTokenAdmin = (adminID, role) => {
     const payload = { id: adminID, role };
-
     const options = { expiresIn: '24h' };
-
     const token = jwt.sign(payload, secretKeyAdmin, options);
-
     return token;
-}
-const verifyTokenAdmin = (token) => {
-    try {
-        const decode = jwt.verify(token, secretKeyAdmin);
-        return decode;
-    } catch (error) {
-        console.error('Invalid token:', error.message);
-        return null;
-    }
-}
-const permissionsCheck = async (barber_token) => {
-    try {
-        const de_token = verifyTokenAdmin(barber_token);
-        const id = de_token.id
-        console.log(de_token)
-        if (!de_token || de_token.role !== "Admin") {
-            return false;
+};
+
+const allow_admin_access = async (req, res) => {
+    try {   
+        const token = req.headers.authorization
+
+        console.log(token)
+
+        let decodedToken;
+        try {
+            decodedToken = jwt.verify(token, secretKeyAdmin);
+        } catch (error) {
+            console.error('Invalid token:', error.message);
+            return res.status(403).json({ message: 'Unauthorized access', status: 'failed' });
         }
 
-        const admin = await Admin.findOne({ _id: id });
+        // التحقق من صلاحيات المستخدم
+        if (!decodedToken || decodedToken.role !== 'Admin') {
+            return res.status(403).json({ message: 'Unauthorized access', status: 'failed' });
+        }
+
+        // البحث عن المستخدم في قاعدة البيانات
+        const admin = await Admin.findOne({ _id: decodedToken.id });
         if (!admin) {
-            return false;
+            return res.status(403).json({ message: 'Unauthorized access', status: 'failed' });
         }
 
-        return true;
+        // الانتقال إلى الخطوة التالية إذا كان المستخدم مصرح له
     } catch (error) {
-        console.log(error);
-        return false;
+        console.error('Error in allow_admin_access middleware:', error);
+        res.status(500).json({ message: 'Server error', status: 'failed' });
     }
 };
 
-const allow_admin_access = async (token) => {
-    // التحقق من صلاحيات المستخدم
-    const isAdmin = await permissionsCheck(token);
-    if (!isAdmin) {
-        return res.status(403).json({ message: 'Unauthorized access', status: "failed" });
-    }
-}
-
-
 module.exports = {
     generateTokenAdmin,
-    verifyTokenAdmin,
-    permissionsCheck,
     allow_admin_access
 };

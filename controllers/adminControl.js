@@ -1,13 +1,13 @@
 const { validate } = require('../middlewares/validate');
 const { allow_admin_access } = require('../utils/admin');
 const Product = require('../models/Product');
+const User = require('../models/user')
 const { bucket, storage, ref, deleteObject, deleteImage } = require('../services/firebase');
 
 
 exports.addProduct = async (req, res) => {
     try {
-        const token = req.headers.authorization;
-        allow_admin_access(token);
+        allow_admin_access(req, res);
 
         const { name, price, description } = req.body;
         const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
@@ -79,11 +79,10 @@ exports.addProduct = async (req, res) => {
     }
 };
 
-
-
 exports.deletedProduct = async (req, res) => {
     try {
-        const token = req.headers.authorization;
+        allow_admin_access(req, res);
+
 
         if (!token) {
             return res.status(401).json({ message: 'Authorization token is missing' });
@@ -139,11 +138,11 @@ exports.deletedProduct = async (req, res) => {
 
 exports.editProduct = async (req, res) => {
     try {
+        allow_admin_access(req, res);
+
+
         const { name, price, description, _id } = req.body;
         const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
-        console.log(name)
-
-
 
         const filter = { _id };
         const updateDoc = { $set: {} };
@@ -212,3 +211,84 @@ exports.editProduct = async (req, res) => {
         res.status(500).json({ message: 'Error updating product.' });
     }
 };
+
+exports.editUser = async (req, res) => {
+    try {
+        allow_admin_access(req, res);
+
+
+        const { email, name, familyName, password, phone, _id } = req.body;
+
+        const filter = { _id };
+
+        const updateDoc = { $set: {} };
+
+        const ifName = { name, email, familyName, password, phone };
+
+        for (const [key, value] of Object.entries(ifName)) {
+            if (value !== undefined) {
+                updateDoc.$set[key] = value;
+            }
+        }
+
+        const result = await User.updateOne(filter, updateDoc);
+
+        if (result.matchedCount === 0) {
+            res.status(404).json({ message: "No matching user found." });
+        } else {
+            res.status(200).json({ message: `${result.modifiedCount} user(s) updated.` });
+        }
+
+    } catch (error) {
+        console.log(`The error: ${error}`);
+        res.status(500).json({ message: "There is a server error. Please see the developer." });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        allow_admin_access(req, res);
+
+        const { _id } = req.body;
+
+        if (!_id) {
+            return res.status(400).json({ message: 'User ID is missing' });
+        }
+
+        console.log(`Attempting to delete user with ID: ${_id}`);
+
+        const user = await User.findById(_id);
+
+        if (!user) {
+            return res.status(404).json({
+                status: "failed",
+                message: "The user is unavailable."
+            });
+        }
+
+        await User.deleteOne({ _id });
+        res.status(200).json({ message: "The user was successfully deleted", status: "success" });
+    } catch (error) {
+        console.error("Error handling user deletion:", error);
+        res.status(500).json({ message: 'An error occurred while handling the user deletion', error: error.message });
+    }
+};
+
+exports.getListUsers = async (req, res) => {
+    try {
+
+        const users = await User.find()
+
+        if (!users) {
+            return res.status(400).json({ message: "Something went wrong Contact the developer No record found" })
+        }
+
+        res.status(200).json({ message: "All users have been returned" , usersList:users })
+
+    } catch (error) {
+        console.log("Contact the developer There is an error on the server side")
+
+        return res.status(500).json({ message: "Contact the developer There is an error on the server side" })
+
+    }
+}
