@@ -5,13 +5,22 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const adminRouter = require('./routes/admin');
 const usersRouter = require('./routes/users');
-const authRouter = require('./routes/auth.js')
+const authRouter = require('./routes/auth.js');
+const { connectDB,syncModels } = require('./config/db'); // استيراد الاتصال بقاعدة البيانات
+const cors = require('cors');
+
 const app = express();
-const connectdb = require('./config/db.js')
-const {encryptionPass} = require('./utils/utils.js')
 
+const corsOptions = {
+  origin: 'http://localhost:3000',
+  credentials: true, 
+  optionSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
-connectdb()
+// الاتصال بقاعدة البيانات
+connectDB();
+syncModels();
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
@@ -23,17 +32,16 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/admin', adminRouter);
-// app.use('/users', usersRouter);
-app.use('/auth', authRouter)
+app.use('/auth', authRouter);
 
 
 // catch 404 and forward to error handler
-app.use(function(req, res, next) {
+app.use(function (req, res, next) {
   next(createError(404));
 });
 
 // error handler
-app.use(function(err, req, res, next) {
+app.use(function (err, req, res, next) {
   // set locals, only providing error in development
   res.locals.message = err.message;
   res.locals.error = req.app.get('env') === 'development' ? err : {};

@@ -1,13 +1,12 @@
 const { validate } = require('../middlewares/validate');
 const { allow_admin_access } = require('../utils/admin');
-const Product = require('../models/Product');
-const User = require('../models/user')
+const { Product, ProductImage } = require('../models/index');
 const { bucket, storage, ref, deleteObject, deleteImage } = require('../services/firebase');
 
 
 exports.addProduct = async (req, res) => {
     try {
-        allow_admin_access(req, res);
+        // allow_admin_access(req, res);
 
         const { name, price, description } = req.body;
         const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
@@ -17,10 +16,17 @@ exports.addProduct = async (req, res) => {
             return res.status(400).json({ message: 'All fields are required: name, price, description', status: "failed" });
         }
 
-        const checkname = await Product.findOne({ name });
+        const checkname = await Product.findOne({ where: { product_name: name } });
         if (checkname) {
             return res.status(400).json({ message: 'This product already exists', status: "failed" });
         }
+
+        // إنشاء المنتج أولاً
+        const product = await Product.create({
+            product_name: name,
+            description: description,
+            price: price
+        });
 
         let images = [];
         console.log("Uploading files to Firebase");
@@ -50,8 +56,9 @@ exports.addProduct = async (req, res) => {
                         const url = signedUrls[0]; // URL الموقّع 
                         console.log(url);
                         images.push({
-                            name: blob.name,
-                            url: url
+                            product_id: product.product_id,
+                            image_url: url,
+                            image_name : blob.name
                         });
                     } catch (error) {
                         console.error('Error getting signed URL:', error);
@@ -63,16 +70,13 @@ exports.addProduct = async (req, res) => {
             });
         }
 
-        const product = new Product({
-            name,
-            price: parseFloat(price),
-            description,
-            images: images
-        });
-        await product.save();
+        // إضافة الصور إلى جدول ProductImage
+        if (images.length > 0) {
+            await ProductImage.bulkCreate(images);
+        }
 
-        console.log("Product created successfully");
-        res.status(200).json({ message: 'Product created successfully', product });
+        console.log("Product created successfully with images");
+        res.status(200).json({ message: 'Product created successfully with images', product });
     } catch (error) {
         console.error("Error handling product creation:", error);
         res.status(500).json({ message: 'An error occurred while handling the product creation', error: error.message });
@@ -81,17 +85,13 @@ exports.addProduct = async (req, res) => {
 
 exports.deletedProduct = async (req, res) => {
     try {
-        allow_admin_access(req, res);
+        // allow_admin_access(req, res);
 
+        // const token = req.headers.authorization?.split(' ')[1]; // استخراج التوكن من الهيدر
 
-        if (!token) {
-            return res.status(401).json({ message: 'Authorization token is missing' });
-        }
-
-        const isAdmin = allow_admin_access(token);
-        if (!isAdmin) {
-            return res.status(403).json({ message: 'Access denied' });
-        }
+        // if (!token) {
+        //     return res.status(401).json({ message: 'Authorization token is missing' });
+        // }
 
         const { _id } = req.body;
 
@@ -101,7 +101,7 @@ exports.deletedProduct = async (req, res) => {
 
         console.log(`Attempting to delete product with ID: ${_id}`);
 
-        const product = await Product.findById(_id);
+        const product = await Product.findByPk(_id, { include: ProductImage });
 
         if (!product) {
             return res.status(404).json({
@@ -112,11 +112,11 @@ exports.deletedProduct = async (req, res) => {
 
         let deletionErrors = [];
 
-        for (const file of product.images) {
+        for (const image of product.ProductImages) {
             try {
-                await deleteImage(file.name);
+                await deleteImage(image.image_name);
             } catch (error) {
-                deletionErrors.push({ fileName: file.name, error: error.message });
+                deletionErrors.push({ fileName: image.name, error: error.message });
             }
         }
 
@@ -128,7 +128,7 @@ exports.deletedProduct = async (req, res) => {
             });
         }
 
-        await Product.deleteOne({ _id });
+        await product.destroy();
         res.status(200).json({ message: "The product was successfully deleted", status: "success" });
     } catch (error) {
         console.error("Error handling product deletion:", error);
@@ -136,37 +136,48 @@ exports.deletedProduct = async (req, res) => {
     }
 };
 
+
 exports.editProduct = async (req, res) => {
     try {
-        allow_admin_access(req, res);
-
+        // allow_admin_access(req, res);
 
         const { name, price, description, _id } = req.body;
+        
         const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
 
-        const filter = { _id };
-        const updateDoc = { $set: {} };
+        if (!_id) {
+            return res.status(400).json({ message: 'Product ID is missing' });
+        }
 
-        if (name !== undefined) updateDoc.$set.name = name;
-        if (price !== undefined) updateDoc.$set.price = price;
-        if (description !== undefined) updateDoc.$set.description = description;
-        const product = await Product.findById(_id);
+        // العثور على المنتج باستخدام معرفه الأساسي وجلب الصور المرتبطة به
+        const product = await Product.findByPk(_id, { include: ProductImage });
+        console.log (_id)
         if (!product) {
             return res.status(404).json({ message: 'No matching product found.' });
         }
 
+        // إعداد تحديثات المنتج
+        let updateData = {};
+        if (name !== undefined) updateData.product_name = name;
+        if (price !== undefined) updateData.price = price;
+        if (description !== undefined) updateData.description = description;
+
         let deletionErrors = [];
-        let images = [];
+        let newImages = [];
+
         if (files && files.length > 0) {
-            await Promise.all(product.images.map(async (file) => {
+            // حذف الصور القديمة المرتبطة بالمنتج
+            await Promise.all(product.ProductImages.map(async (image) => {
                 try {
-                    await deleteImage(file.name);
+                    await deleteImage(image.image_name);
+                    await image.destroy(); // حذف الصورة من قاعدة البيانات
                 } catch (error) {
-                    deletionErrors.push({ fileName: file.name, error: error.message });
+                    deletionErrors.push({ fileName: image.image_name, error: error.message });
                 }
             }));
 
-            images = await Promise.all(files.map(async (file) => {
+            // إضافة الصور الجديدة
+            newImages = await Promise.all(files.map(async (file) => {
                 const blob = bucket.file(`images/${file.originalname}`);
                 const blobStream = blob.createWriteStream({ resumable: false });
 
@@ -188,7 +199,11 @@ exports.editProduct = async (req, res) => {
                 });
             }));
 
-            updateDoc.$set.images = images;
+            // إضافة الصور الجديدة إلى التحديثات
+            updateData.ProductImages = newImages.map(image => ({
+                name: image.name,
+                url: image.url
+            }));
         }
 
         if (deletionErrors.length > 0) {
@@ -199,18 +214,40 @@ exports.editProduct = async (req, res) => {
             });
         }
 
-        const result = await Product.updateOne(filter, updateDoc);
+        // تحديث المنتج في قاعدة البيانات
+        await product.update(updateData);
 
-        if (result.matchedCount === 0) {
-            res.status(404).json({ message: "No matching product found." });
-        } else {
-            res.status(200).json({ message: `${result.modifiedCount} product(s) updated.` });
+        // إضافة الصور الجديدة إلى قاعدة البيانات
+        if (newImages.length > 0) {
+            await Promise.all(newImages.map(async (imageData) => {
+                await ProductImage.create({
+                    image_url: imageData.url,
+                    product_id: product.product_id
+                });
+            }));
         }
+
+        res.status(200).json({ message: 'Product updated successfully.' });
     } catch (error) {
         console.error('Error updating product:', error);
         res.status(500).json({ message: 'Error updating product.' });
     }
 };
+
+exports.getListProduct = async (req, res) => {
+    try {
+        const products = await Product.findAll({
+          include: {
+            model: ProductImage,
+            attributes: ['image_id', 'image_url', 'image_name']
+          }
+        });
+        res.json(products);
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Something went wrong' });
+      }
+}
 
 exports.editUser = async (req, res) => {
     try {
@@ -283,7 +320,7 @@ exports.getListUsers = async (req, res) => {
             return res.status(400).json({ message: "Something went wrong Contact the developer No record found" })
         }
 
-        res.status(200).json({ message: "All users have been returned" , usersList:users })
+        res.status(200).json({ message: "All users have been returned", usersList: users })
 
     } catch (error) {
         console.log("Contact the developer There is an error on the server side")

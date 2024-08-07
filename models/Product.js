@@ -1,26 +1,24 @@
-var mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const productSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    unique: true
-
+const Product = sequelize.define('Product', {
+  product_id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
-  price: {
-    type: Number,
-    required: true
+  product_name: {
+    type: DataTypes.STRING(100),
+    allowNull: true
   },
   description: {
-    type: String,
-    required: true
+    type: DataTypes.TEXT,
+    allowNull: true
   },
-  images: {  // تعديل هذا الحقل لقبول مصفوفة من عناوين URL
-    type: [],
-    required: true  // يمكنك تعيينها إلى false إذا كانت الصور اختيارية
+  price: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true
   }
-})
+});
 
-const Product = mongoose.model('Produts', productSchema)
-
-module.exports = Product
+module.exports = Product;

@@ -1,13 +1,26 @@
-const mongoose = require('mongoose'
+const { Sequelize } = require('sequelize');
 
-)
-const connectdb = async () => {
+const sequelize = new Sequelize('postgres', 'postgres', '123123', {
+  host: 'localhost',
+  dialect: 'postgres',
+  logging: false,
+});
+
+const connectDB = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('Connection has been established successfully.');
+  } catch (error) {
+    console.error('Unable to connect to the database:', error);
+  }
+};
+
+const syncModels = async () => {
     try {
-        mongoose.connect('mongodb+srv://mrgames7700:Y9kXeRt1Ue0O0qVl@cluster0.pts3xm2.mongodb.net/?retryWrites=true&w=majority&appName=DataBase');
-        console.log('Connected to MongoDB');    
+      await sequelize.sync({ alter: true }); // استخدم `force: true` لإعادة إنشاء الجداول
+      console.log('Database & tables created or updated!');
     } catch (error) {
-        console.log('Error connecting MongoDB :', error.message)
+      console.error('Error synchronizing the models:', error);
     }
-}
-
-module.exports =  connectdb
+  };
+module.exports = { sequelize, connectDB,syncModels };

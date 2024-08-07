@@ -1,45 +1,60 @@
-const mongoose = require('mongoose');
-const { encryptionPass } = require('../utils/utils')
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db'); // استيراد الاتصال بقاعدة البيانات
+const bcrypt = require('bcrypt');
+const { encryptionPass } = require('../utils/utils');
 
-const adminSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true
-    },
-    email: {
-        type: String,
-        required: [true, "Email is required"],
-        unique: true
-    },
-    password: {
-        type: String,
-        required: [true, 'Password is required'],
-        minlength: [6, 'Password must be at least 6 characters long']
-    },
-    role: {
-        type: String,
-        default: "Admin"
+const Admin = sequelize.define('Admin', {
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
+  email: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true,
+    validate: {
+      isEmail: {
+        msg: 'Email is required'
+      }
     }
-
-})
-
-adminSchema.pre('save', async function (next) {
-    if (this.isModified('password') || this.isNew) {
+  },
+  password: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    validate: {
+      len: {
+        args: [6],
+        msg: 'Password must be at least 6 characters long'
+      }
+    }
+  },
+  role: {
+    type: DataTypes.STRING,
+    defaultValue: 'Admin',
+  }
+}, {
+  hooks: {
+    beforeCreate: async (admin) => {
+      if (admin.password) {
         try {
-            const hashpassword = await encryptionPass(this.password)
-            this.password = hashpassword
-            next()
-
+          const hashedPassword = await encryptionPass(admin.password);
+          admin.password = hashedPassword;
         } catch (error) {
-            next(error)
+          throw new Error('Error encrypting password');
         }
-    } else {
-        return next()
+      }
+    },
+    beforeUpdate: async (admin) => {
+      if (admin.changed('password')) {
+        try {
+          const hashedPassword = await encryptionPass(admin.password);
+          admin.password = hashedPassword;
+        } catch (error) {
+          throw new Error('Error encrypting password');
+        }
+      }
     }
-})
+  }
+});
 
-
-
-const Admin = mongoose.model('Admin', adminSchema)
-
-module.exports = Admin 
+module.exports = Admin;
