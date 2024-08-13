@@ -9,7 +9,7 @@ const UserAddress = sequelize.define('UserAddress', {
     autoIncrement: true
   },
   user_id: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.UUID,
     references: {
       model: User,
       key: 'user_id'

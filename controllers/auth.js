@@ -1,28 +1,36 @@
-const User = require('../models/User');
+const { User, Admin } = require('../models/index');
 const { generateToken, decryptionPassword, checkPassword, generateTokenAdmin } = require('../utils/utils');
-const Admin = require('../models/admin')
 
 exports.createUser = async (req, res) => {
     try {
-        const { email, name, familyName, password, phone } = req.body;
-        const user = new User({
-            email,
-            name,
-            familyName,
-            password,
-            phone,
-        });
-        const existingUser = await User.findOne({ email })
-        if (existingUser) {
-            return res.status(400).json({
-                status: "failed",
-                data: [],
-                message: "It seems you already have an account, please log in instead.",
-            })
+        const { email, first_name, last_name, password, phone_number } = req.body;
+
+        // التحقق من وجود البريد الإلكتروني
+        const emailExists = await User.findOne({ where: { email } });
+        if (emailExists) {
+            return res.status(400).json({ message: "Email is already in use" });
         }
-        await user.save();
-        const token = generateToken();
-        res.status(200).json({
+
+        // التحقق من وجود رقم الهاتف
+        const phoneExists = await User.findOne({ where: { phone_number } });
+        if (phoneExists) {
+            return res.status(400).json({ message: "Phone number is already in use" });
+        }
+
+        // إنشاء المستخدم الجديد
+        const user = await User.create({
+            first_name,
+            last_name,
+            password, // تأكد من تشفير كلمة المرور قبل حفظها
+            phone_number,
+            email
+        });
+
+        // إنشاء التوكن
+        const token = generateToken(user.user_id);
+
+        // إرجاع الاستجابة
+        return res.status(201).json({
             status: "Success",
             data: [],
             message: "Thank you for registering with us. Your account has been successfully created.",
@@ -30,7 +38,8 @@ exports.createUser = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({
+        console.error("Server error:", error.message);
+        return res.status(500).json({
             status: "error",
             code: 500,
             data: [],
@@ -38,6 +47,7 @@ exports.createUser = async (req, res) => {
         });
     }
 };
+
 exports.loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -86,7 +96,11 @@ exports.createAdmin = async (req, res) => {
             name,
             password,
         });
-        const existingUser = await User.findOne({ email })
+        const existingUser = await Admin.findOne({
+            where: {
+                email: email
+            }
+        })
         if (existingUser) {
             return res.status(400).json({
                 status: "failed",
@@ -95,12 +109,14 @@ exports.createAdmin = async (req, res) => {
             })
         }
         await admin.save();
-        const token = generateTokenAdmin(admin._id, admin.role);
+        const token = generateTokenAdmin(admin.admin_id, admin.role);
         res.status(200).json({
             status: "Success",
-            data: [],
+            data: {
+                token: token,
+            },
             message: "Thank you for registering with us. Your account has been successfully created.",
-            token
+
         });
     } catch (error) {
         console.log(error)
@@ -115,7 +131,7 @@ exports.createAdmin = async (req, res) => {
 exports.loginAdmin = async (req, res) => {
     try {
         const { email, password } = req.body;
-        const admin = await Admin.findOne({ email });
+        const admin = await Admin.findOne({ where:{email:email} });
 
         if (!admin) {
             return res.status(401).json({
@@ -142,7 +158,7 @@ exports.loginAdmin = async (req, res) => {
             status: "success",
             data: { token, admin }
         });
-        
+
     } catch (error) {
         res.status(500).json({
             message: "An error occurred while logging in. Please try again later.",

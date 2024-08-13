@@ -1,6 +1,5 @@
-const { validate } = require('../middlewares/validate');
 const { allow_admin_access } = require('../utils/admin');
-const { Product, ProductImage } = require('../models/index');
+const { Product, ProductImage, User } = require('../models/index');
 const { bucket, storage, ref, deleteObject, deleteImage } = require('../services/firebase');
 
 
@@ -58,7 +57,7 @@ exports.addProduct = async (req, res) => {
                         images.push({
                             product_id: product.product_id,
                             image_url: url,
-                            image_name : blob.name
+                            image_name: blob.name
                         });
                     } catch (error) {
                         console.error('Error getting signed URL:', error);
@@ -142,7 +141,7 @@ exports.editProduct = async (req, res) => {
         // allow_admin_access(req, res);
 
         const { name, price, description, _id } = req.body;
-        
+
         const files = req.files; // استخدام req.files للحصول على الملفات المتعددة
 
         if (!_id) {
@@ -151,7 +150,7 @@ exports.editProduct = async (req, res) => {
 
         // العثور على المنتج باستخدام معرفه الأساسي وجلب الصور المرتبطة به
         const product = await Product.findByPk(_id, { include: ProductImage });
-        console.log (_id)
+        console.log(_id)
         if (!product) {
             return res.status(404).json({ message: 'No matching product found.' });
         }
@@ -237,74 +236,82 @@ exports.editProduct = async (req, res) => {
 exports.getListProduct = async (req, res) => {
     try {
         const products = await Product.findAll({
-          include: {
-            model: ProductImage,
-            attributes: ['image_id', 'image_url', 'image_name']
-          }
+            include: {
+                model: ProductImage,
+                attributes: ['image_id', 'image_url', 'image_name']
+            }
         });
         res.json(products);
-      } catch (error) {
+    } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Something went wrong' });
-      }
+    }
 }
 
 exports.editUser = async (req, res) => {
     try {
-        allow_admin_access(req, res);
+        const { email, first_name, last_name, password, phone_number, user_id } = req.body;
 
-
-        const { email, name, familyName, password, phone, _id } = req.body;
-
-        const filter = { _id };
-
-        const updateDoc = { $set: {} };
-
-        const ifName = { name, email, familyName, password, phone };
-
-        for (const [key, value] of Object.entries(ifName)) {
-            if (value !== undefined) {
-                updateDoc.$set[key] = value;
-            }
+        // التأكد من أن user_id موجود في الطلب
+        if (!user_id) {
+            return res.status(400).json({ message: "User ID is required." });
         }
 
-        const result = await User.updateOne(filter, updateDoc);
+        // إنشاء كائن updateDoc مع الحقول غير المعرفة فقط
+        const updateData = {};
+        if (email) updateData.email = email;
+        if (first_name) updateData.first_name = first_name;
+        if (last_name) updateData.last_name = last_name;
+        if (password) updateData.password = password;
+        if (phone_number) updateData.phone_number = phone_number;
 
-        if (result.matchedCount === 0) {
-            res.status(404).json({ message: "No matching user found." });
-        } else {
-            res.status(200).json({ message: `${result.modifiedCount} user(s) updated.` });
+        // التحقق من وجود أي بيانات لتحديثها
+        if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ message: "No data provided to update." });
         }
+
+        // تحديث المستخدم في قاعدة البيانات
+        const [updatedRows] = await User.update(updateData, {
+            where: { user_id: user_id }
+        });
+
+        if (updatedRows === 0) {
+            return res.status(404).json({ message: "User not found or no changes made." });
+        }
+
+        res.status(200).json({ message: `${updatedRows} user(s) updated.` });
 
     } catch (error) {
-        console.log(`The error: ${error}`);
+        console.error(`Error updating user: ${error}`);
         res.status(500).json({ message: "There is a server error. Please see the developer." });
     }
 };
 
 exports.deleteUser = async (req, res) => {
     try {
-        allow_admin_access(req, res);
+        // allow_admin_access(req, res);
 
-        const { _id } = req.body;
+        const { user_id } = req.body;
 
-        if (!_id) {
+        if (!user_id) {
             return res.status(400).json({ message: 'User ID is missing' });
         }
 
-        console.log(`Attempting to delete user with ID: ${_id}`);
+        const deletedRows = await User.destroy({
+            where: {
+                user_id: user_id
+            }
+        });
 
-        const user = await User.findById(_id);
+        if (deletedRows === 0) {
+            console.log('No user found to delete.');
+            res.status(404).json({ message: 'No user found to delete.' });
 
-        if (!user) {
-            return res.status(404).json({
-                status: "failed",
-                message: "The user is unavailable."
-            });
+        } else {
+            res.status(200).json({ message: `${deletedRows} user(s) deleted.` });
+
         }
 
-        await User.deleteOne({ _id });
-        res.status(200).json({ message: "The user was successfully deleted", status: "success" });
     } catch (error) {
         console.error("Error handling user deletion:", error);
         res.status(500).json({ message: 'An error occurred while handling the user deletion', error: error.message });
@@ -313,19 +320,25 @@ exports.deleteUser = async (req, res) => {
 
 exports.getListUsers = async (req, res) => {
     try {
+        const users = await User.findAll();
 
-        const users = await User.find()
-
-        if (!users) {
-            return res.status(400).json({ message: "Something went wrong Contact the developer No record found" })
+        if (users.length > 0) { // تحقق إذا كانت المصفوفة تحتوي على مستخدمين
+            return res.status(200).json({
+                message: "All users have been returned",
+                usersList: users
+            });
+        } else {
+            return res.status(404).json({
+                message: "No users found"
+            });
         }
-
-        res.status(200).json({ message: "All users have been returned", usersList: users })
-
     } catch (error) {
-        console.log("Contact the developer There is an error on the server side")
+        console.error("Server error:", error.message); // استخدام console.error مع طباعة رسالة الخطأ
 
-        return res.status(500).json({ message: "Contact the developer There is an error on the server side" })
-
+        return res.status(500).json({
+            message: "An error occurred on the server. Please contact the developer."
+        });
     }
-}
+};
+
+
